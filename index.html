@@ -11,6 +11,8 @@
             background: linear-gradient(to bottom, #0f2027, #203a43, #2c5364); 
             font-family: 'Courier New', Courier, monospace;
             touch-action: none; 
+            user-select: none;
+            -webkit-user-select: none;
         }
         canvas { display: block; width: 100%; height: 100%; }
         #ui { 
@@ -26,6 +28,7 @@
             border: 2px solid #fff; pointer-events: none;
             display: block; width: 80%; max-width: 400px;
             line-height: 1.5;
+            z-index: 20;
         }
     </style>
 </head>
@@ -34,8 +37,7 @@
     <div id="ui">Дистанция: <span id="score">0</span> м</div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
-        Тапни или Пробел,<br>чтобы прыгать.<br>
-        Не упади в пропасть!
+        Тапни или Пробел,<br>чтобы прыгать.
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -45,9 +47,9 @@
     
     let width, height;
     
-    function resize() {
-        width = window.innerWidth;
-        height = window.innerHeight;        canvas.width = width;
+    function resize() {        width = window.innerWidth;
+        height = window.innerHeight;
+        canvas.width = width;
         canvas.height = height;
     }
     window.addEventListener('resize', resize);
@@ -55,18 +57,17 @@
 
     // --- НАСТРОЙКИ ФИЗИКИ ---
     const GRAVITY = 0.6;
-    const JUMP_FORCE = -14; // Чуть сильнее прыжок для запаса
+    const JUMP_FORCE = -14;
     const BASE_SPEED = 6;
     
-    // Переменные игры
     let score = 0;
-    let finalScore = 0; // Сохраняем счет при проигрыше
+    let finalScore = 0;
     let frame = 0;
     let isGameOver = false;
+    let gameStarted = false; // Флаг начала игры
     let gameSpeed = BASE_SPEED;
     let platforms = [];
 
-    // Игрок
     const player = {
         x: 100, 
         y: 0,
@@ -79,29 +80,50 @@
 
     // Управление
     function jump() {
+        // Если игра не началась - начинаем её первым прыжком
+        if (!gameStarted) {
+            gameStarted = true;
+            document.getElementById('start-msg').style.display = 'none';
+        }
+
         if (isGameOver) {
             resetGame();
             return;
         }
+
         if (player.grounded) {
             player.vy = JUMP_FORCE;
             player.grounded = false;
-            document.getElementById('start-msg').style.display = 'none';
         }
     }
-
-    window.addEventListener('keydown', e => { if(e.code === 'Space') jump(); });
-    window.addEventListener('touchstart', (e) => { e.preventDefault(); jump(); }, {passive: false});
-    window.addEventListener('mousedown', jump);
+    window.addEventListener('keydown', e => { 
+        if(e.code === 'Space') {
+            e.preventDefault(); // Чтобы страница не скроллилась
+            jump(); 
+        }
+    });
+    window.addEventListener('touchstart', (e) => { 
+        e.preventDefault(); 
+        jump(); 
+    }, {passive: false});
+    window.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        jump();
+    });
 
     function resetGame() {
         platforms = [];
-        score = 0;        finalScore = 0;
+        score = 0;
+        finalScore = 0;
         frame = 0;
         gameSpeed = BASE_SPEED;
-        player.y = height / 2;
-        player.vy = 0;
         isGameOver = false;
+        gameStarted = false; // Сбрасываем флаг старта
+        
+        // Начальная позиция игрока (на первой платформе)
+        player.y = height - 250; 
+        player.vy = 0;
+        player.grounded = true;
         
         // Стартовая длинная платформа
         platforms.push({
@@ -111,7 +133,7 @@
             height: 200
         });
         
-        // Сообщение о проигрыше (изменится текст после смерти)
+        // Показываем инструкцию
         const msg = document.getElementById('start-msg');
         msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.";
         msg.style.display = 'block';
@@ -119,33 +141,23 @@
         updateUI();
     }
 
-    // Генерация крыши с умными ограничениями
     function spawnPlatform() {
         const lastP = platforms[platforms.length - 1];
         
-        // 1. Ограничиваем разрыв (пропасть)
-        // Минимум 80, максимум 220 (чтобы можно было перепрыгнуть)
         const minGap = 80;
-        const maxGap = 220; 
-        const gap = minGap + Math.random() * (maxGap - minGap);
+        const maxGap = 220;         const gap = minGap + Math.random() * (maxGap - minGap);
         
-        // 2. Ограничиваем высоту следующей платформы
-        // Максимальная высота прыжка игрока примерно: (JUMP_FORCE^2) / (2 * GRAVITY) ≈ 160px
-        // Добавляем запас, но не делаем невозможных прыжков.
         const maxJumpHeight = 160; 
-        
-        // Случайное изменение высоты относительно предыдущей
         let heightChange = (Math.random() - 0.5) * maxJumpHeight * 1.2; 
         
         let pY = lastP.y + heightChange;
         
-        // Жесткие границы экрана (отступ сверху 100, снизу 100)
         const minY = 150;
         const maxY = height - 100;
         
         if (pY < minY) pY = minY;
         if (pY > maxY) pY = maxY;
-        // Ширина платформы
+
         const pWidth = 200 + Math.random() * 400;
 
         platforms.push({
@@ -157,23 +169,24 @@
     }
 
     function update() {
-        if (isGameOver) return;
+        // Если игра еще не началась (ждем первого прыжка), просто рисуем, но не двигаем мир
+        if (!gameStarted || isGameOver) {
+            return; 
+        }
 
         // Физика
         player.vy += GRAVITY;
         player.y += player.vy;
 
         // Движение мира
-        gameSpeed += 0.0005; // Очень плавное ускорение
+        gameSpeed += 0.0005;
         score += gameSpeed * 0.05;
         updateUI();
 
-        // Двигаем платформы
         for (let i = 0; i < platforms.length; i++) {
             platforms[i].x -= gameSpeed;
         }
 
-        // Удаляем старые, добавляем новые
         if (platforms[0].x + platforms[0].width < -100) {
             platforms.shift();
         }
@@ -182,33 +195,25 @@
         if (lastP.x < width + 200) {
             spawnPlatform();
         }
-
-        // --- ИСПРАВЛЕННАЯ КОЛЛИЗИЯ ---
+        // Коллизия
         player.grounded = false;
         
         for (let p of platforms) {
-            // Проверяем, находится ли игрок над платформой по горизонтали
-            // С небольшим допуском (±10px), чтобы не проваливаться на краях
             const horizontalOverlap = (player.x + player.width > p.x + 5) && (player.x < p.x + p.width - 5);
-            
-            // Проверяем вертикаль:
-            // 1. Ноги игрока ниже или на уровне верха платформы
             const feetBelowTop = (player.y + player.height >= p.y);
-            // 2. Ноги игрока не слишком глубоко внутри платформы (был в воздухе в прошлом кадре)            const wasAbove = (player.y + player.height - player.vy <= p.y + 10);
-            // 3. Игрок падает вниз
+            const wasAbove = (player.y + player.height - player.vy <= p.y + 10);
             const fallingDown = (player.vy >= 0);
 
             if (horizontalOverlap && feetBelowTop && wasAbove && fallingDown) {
                 player.grounded = true;
                 player.vy = 0;
-                player.y = p.y - player.height; // Телепортируем ровно на край
+                player.y = p.y - player.height;
             }
         }
 
-        // Смерть
         if (player.y > height) {
             isGameOver = true;
-            finalScore = Math.floor(score); // ЗАПОМИНАЕМ СЧЕТ
+            finalScore = Math.floor(score);
             
             const msg = document.getElementById('start-msg');
             msg.innerHTML = `УПАЛ!<br><br>Дистанция: <b style="color:#ff9f43; font-size:1.2em">${finalScore}</b> м<br><small>Тапни для рестарта</small>`;
@@ -219,7 +224,6 @@
     }
 
     function updateUI() {
-        // Показываем текущий счет, а если игра окончена - финальный
         document.getElementById('score').innerText = isGameOver ? finalScore : Math.floor(score);
     }
 
@@ -232,23 +236,19 @@
         ctx.arc(width - 80, 80, 40, 0, Math.PI * 2);
         ctx.fill();
 
-        // Звезды (параллакс)
+        // Звезды
         ctx.fillStyle = '#fff';
         for(let i=0; i<30; i++) {
-            // Двигаем звезды медленнее фона
             let sx = ((frame * 0.2) + (i * 137)) % width;
             let sy = (i * 23) % (height/2);
             ctx.fillRect(sx, sy, 2, 2);
         }
-
         // Платформы
         platforms.forEach(p => {
-            // Тело здания            ctx.fillStyle = '#576574'; 
+            ctx.fillStyle = '#576574'; 
             ctx.fillRect(p.x, p.y, p.width, p.height);
-            // Крыша
             ctx.fillStyle = '#8395a7';
             ctx.fillRect(p.x, p.y, p.width, 10);
-            // Декор
             ctx.fillStyle = '#222';
             ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
             ctx.fillRect(p.x + p.width - 40, p.y - 20, 15, 20);
@@ -258,20 +258,18 @@
         ctx.fillStyle = player.color;
         ctx.fillRect(player.x, player.y, player.width, player.height);
         
-        // Глаза
         ctx.fillStyle = '#fff';
         ctx.fillRect(player.x + 25, player.y + 10, 10, 10);
         ctx.fillStyle = '#000';
         ctx.fillRect(player.x + 30, player.y + 12, 4, 4);
 
-        // Шарф (анимация от скорости и прыжка)
-        if (!player.grounded || gameSpeed > 6) {
+        // Шарф
+        if (!player.grounded || (gameStarted && !isGameOver)) {
             ctx.fillStyle = '#ff6b6b';
             ctx.beginPath();
             ctx.moveTo(player.x, player.y + 15);
-            // Чем быстрее бежим, тем сильнее шарф назад
-            let wind = gameSpeed * 1.5; 
-            if (!player.grounded) wind += 5; // В прыжке сильнее
+            let wind = (gameStarted && !isGameOver) ? gameSpeed * 1.5 : 0;
+            if (!player.grounded) wind += 5;
             
             ctx.lineTo(player.x - wind, player.y + 10 + Math.sin(frame*0.5)*5);
             ctx.lineTo(player.x, player.y + 25);
@@ -285,12 +283,10 @@
         requestAnimationFrame(loop);
     }
 
-    // Старт
+    // Инициализация
     resetGame();
-    // Сразу скрываем сообщение "Упал", оставляем инструкцию
-    document.getElementById('start-msg').innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.";
-    isGameOver = false;
-    
     loop();
-</script></body>
+
+</script>
+</body>
 </html>
