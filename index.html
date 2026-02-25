@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier v0.2.10</title>
+    <title>Roof Courier v0.2.11</title>
     <style>
         body { 
             margin: 0; 
@@ -41,12 +41,12 @@
 
     <div id="ui">
         Дистанция: <span id="score">0</span> м<br>
-        <span class="version">Версия: 0.2.10</span>
+        <span class="version">Версия: 0.2.11</span>
     </div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
         Тапни или Пробел,<br>чтобы прыгать.<br>
-        <small style="font-size:0.8em; color:#aaa">Уклоны от 10° до 25°</small>
+        <small style="font-size:0.8em; color:#aaa">Уровни плавно возвращаются к центру</small>
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -110,9 +110,13 @@
     
     const ROOF_CHANCES = [80, 20, 0]; 
     
-    // НАСТРОЙКИ УГЛОВ (в градусах)
     const MIN_ANGLE_DEG = 10;
     const MAX_ANGLE_DEG = 25;
+    
+    // НАСТРОЙКА "МАГНИТА" К ЦЕНТРУ
+    // 0.03 означает, что каждая новая крыша стремится сократить расстояние до центра на 3%.
+    // Это слабо заметно на коротких дистанциях, но эффективно на длинных.
+    const CENTER_BIAS_STRENGTH = 0.03; 
 
     let score = 0;
     let finalScore = 0;
@@ -168,7 +172,7 @@
         platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0, endY: height - 150, type: 'flat' });
         
         const msg = document.getElementById('start-msg');
-        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Уклоны от 10° до 25°</small>";
+        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Уровни плавно возвращаются к центру</small>";
         msg.style.display = 'block';
         updateUI();
     }
@@ -184,7 +188,17 @@
         else if (rand < ROOF_CHANCES[0] + ROOF_CHANCES[1]) type = 'slope';
         else type = 'double';
 
-        let startY = lastP.y + (Math.random() - 0.5) * 100;
+        // --- ЛОГИКА С "МАГНИТОМ" К ЦЕНТРУ ---
+        const targetY = height * 0.5; // Цель - середина экрана
+        const diff = targetY - lastP.y; // Разница между текущей высотой и целью
+        
+        // Случайное смещение (-50..+50) + Коррекция к центру (diff * 0.03)
+        const randomShift = (Math.random() - 0.5) * 100;
+        const biasShift = diff * CENTER_BIAS_STRENGTH;
+        
+        let startY = lastP.y + randomShift + biasShift;
+
+        // Жесткие границы (на случай экстремальных ситуаций)
         if (startY < 150) startY = 150;
         if (startY > height - 100) startY = height - 100;
 
@@ -192,22 +206,14 @@
         let endY = startY;
 
         if (type === 'slope') {
-            // 1. Генерируем случайный угол в градусах в заданном диапазоне
             const randomAngleDeg = MIN_ANGLE_DEG + Math.random() * (MAX_ANGLE_DEG - MIN_ANGLE_DEG);
-            
-            // 2. Случайно выбираем направление: подъем (-) или спуск (+)
-            // В Canvas Y растет вниз, поэтому:
-            // Положительный tan = спуск вправо (конец ниже начала)
-            // Отрицательный tan = подъем вправо (конец выше начала)
             const direction = Math.random() < 0.5 ? 1 : -1;
-            
-            // 3. Переводим в тангенс (уклон)
             const rad = randomAngleDeg * (Math.PI / 180);
             slope = direction * Math.tan(rad);
             
             endY = startY + slope * pWidth;
             
-            // Ограничение выхода за экран (корректируем уклон, если не влезает)
+            // Коррекция только если совсем вылетает за экран
             if (endY < 100) { 
                 slope = (100 - startY) / pWidth; 
                 endY = 100; 
@@ -360,11 +366,9 @@
                 const colorRoof = '#8395a7';
                 const colorWall = '#576574';
 
-                // Основание
                 ctx.fillStyle = colorWall;
                 ctx.fillRect(xLeft, baseLine, p.width, buildingBaseY - baseLine);
                 
-                // Крыша (треугольник)
                 ctx.fillStyle = colorRoof;
                 ctx.beginPath();
                 ctx.moveTo(xLeft, yLeft);
@@ -378,7 +382,6 @@
                 ctx.fill();
 
             } else {
-                // Плоская крыша
                 ctx.fillStyle = '#576574';
                 ctx.fillRect(p.x, p.y, p.width, p.height);
                 ctx.strokeStyle = '#8395a7';
