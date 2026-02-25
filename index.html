@@ -254,7 +254,7 @@
         if (player.grounded) {
             if (currentState === STATE.JUMP_DOWN || currentState === STATE.JUMP_UP) {
                 currentState = STATE.LAND;
-                landTimer = 12; // Длительность анимации приземления
+                landTimer = 4; // Длительность анимации приземления
                 animFrame = 0; // Сброс на первый кадр приземления
             } else if (currentState !== STATE.LAND) {
                 currentState = STATE.RUN;
