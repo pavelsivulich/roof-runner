@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier - Slopes & Physics</title>
+    <title>Roof Courier - Fixed Slopes</title>
     <style>
         body { 
             margin: 0; 
@@ -56,7 +56,7 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // --- ГЕНЕРАЦИЯ СПРАЙТА (Без изменений) ---
+    // --- ГЕНЕРАЦИЯ СПРАЙТА ---
     function createHeroSprite() {
         const c = document.createElement('canvas');
         const FRAME_W = 16; const FRAME_H = 16; const COLS = 8; const ROWS = 3;
@@ -97,10 +97,8 @@
     const GRAVITY = 0.6;
     const JUMP_FORCE = -14;
     const BASE_SPEED = 6;
-    const BASE_ACCELERATION = 0.001; // Базовое ускорение
+    const BASE_ACCELERATION = 0.001;
     
-    // ВЕРОЯТНОСТИ ТИПОВ КРЫШ: [Плоские, Односкатные, Двускатные]
-    // Сумма должна быть 100. Двускатные пока 0, но структура готова.
     const ROOF_CHANCES = [80, 20, 0]; 
 
     let score = 0;
@@ -111,7 +109,6 @@
     let gameSpeed = BASE_SPEED;
     let platforms = [];
 
-    // Анимация
     let animFrame = 0, animTimer = 0;
     const ANIM_SPEED_RUN = 6;
     const STATE = { RUN: 0, JUMP_UP: 1, JUMP_DOWN: 2, LAND: 3 };
@@ -121,7 +118,8 @@
     const player = {
         x: 100, y: 0, width: 32, height: 32,
         vy: 0, grounded: false, angle: 0,
-        onSlope: false, currentSlope: 0
+        onSlope: false, currentSlope: 0,
+        wasGrounded: false // Флаг состояния в прошлом кадре
     };
 
     // Управление
@@ -131,11 +129,17 @@
             document.getElementById('start-msg').style.display = 'none';
         }
         if (isGameOver) { resetGame(); return; }
-        if (player.grounded && currentState !== STATE.LAND) {
-            player.vy = JUMP_FORCE;
-            player.grounded = false;
-            player.onSlope = false;
-            currentState = STATE.JUMP_UP;
+        
+        // Разрешаем прыжок, если стоим на земле и не в анимации приземления
+        // Или если мы на склоне и просто бежим (игнорируем landTimer на склонах, если не было падения)
+        if (player.grounded && (currentState !== STATE.LAND || player.onSlope)) {
+             // Дополнительная защита: если на склоне, разрешаем прыжок почти всегда, если grounded=true
+             if (player.onSlope || landTimer <= 0) {
+                player.vy = JUMP_FORCE;
+                player.grounded = false;
+                player.onSlope = false;
+                currentState = STATE.JUMP_UP;
+             }
         }
     }
     window.addEventListener('keydown', e => { if(e.code === 'Space') { e.preventDefault(); jump(); }});
@@ -147,11 +151,11 @@
         score = 0; finalScore = 0; frame = 0;
         gameSpeed = BASE_SPEED;
         isGameOver = false; gameStarted = false;
-        currentState = STATE.RUN; animFrame = 0;
-        player.y = height - 250; player.vy = 0; player.grounded = true; player.angle = 0; player.onSlope = false;
+        currentState = STATE.RUN; animFrame = 0; landTimer = 0;
+        player.y = height - 250; player.vy = 0; player.grounded = true; player.wasGrounded = true;
+        player.angle = 0; player.onSlope = false; player.currentSlope = 0;
         
-        // Стартовая плоская платформа
-        platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0 });
+        platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0, endY: height - 150 });
         
         const msg = document.getElementById('start-msg');
         msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>В гору бежать тяжелее!</small>";
@@ -159,21 +163,18 @@
         updateUI();
     }
 
-    // Генерация платформы с учетом вероятностей
     function spawnPlatform() {
         const lastP = platforms[platforms.length - 1];
         const gap = 80 + Math.random() * 140;
         const pWidth = 200 + Math.random() * 400;
         
-        // Выбор типа крыши
         const rand = Math.random() * 100;
         let type = 'flat';
         if (rand < ROOF_CHANCES[0]) type = 'flat';
         else if (rand < ROOF_CHANCES[0] + ROOF_CHANCES[1]) type = 'slope';
-        else type = 'double'; // Пока не используется, но логика есть
+        else type = 'double';
 
-        let startY = lastP.y + (Math.random() - 0.5) * 100; // Базовая высота
-        // Ограничения экрана
+        let startY = lastP.y + (Math.random() - 0.5) * 100;
         if (startY < 150) startY = 150;
         if (startY > height - 100) startY = height - 100;
 
@@ -181,12 +182,11 @@
         let endY = startY;
 
         if (type === 'slope') {
-            // Генерируем уклон от -0.3 до 0.3 (примерно ±17 градусов)
-            // Положительный уклон = в гору, отрицательный = с горы
-            slope = (Math.random() - 0.5) * 0.6; 
+            // Ограничим максимальный уклон, чтобы избежать совсем экстремальных багов
+            // Максимум около 30 градусов (tan(30) ≈ 0.58)
+            slope = (Math.random() - 0.5) * 0.8; 
             endY = startY + slope * pWidth;
             
-            // Корректируем endY, чтобы не улететь за экран
             if (endY < 100) { slope = (100 - startY) / pWidth; endY = 100; }
             if (endY > height - 50) { slope = (height - 50 - startY) / pWidth; endY = height - 50; }
         }
@@ -195,7 +195,7 @@
             x: lastP.x + lastP.width + gap, 
             y: startY, 
             width: pWidth, 
-            height: 400, // Достаточно глубоко вниз
+            height: 400, 
             slope: slope,
             endY: endY
         });
@@ -204,79 +204,100 @@
     function update() {
         if (!gameStarted || isGameOver) return;
 
+        player.wasGrounded = player.grounded;
         player.vy += GRAVITY;
         player.y += player.vy;
 
-        // Логика состояний
-        let wasOnSlope = player.onSlope;
-        player.onSlope = false;
-        player.currentSlope = 0;
-
-        if (player.grounded) {
-            if (currentState === STATE.JUMP_DOWN || currentState === STATE.JUMP_UP) {
-                currentState = STATE.LAND;
-                landTimer = 4;
-                animFrame = 0;
-            } else if (currentState !== STATE.LAND) {
-                currentState = STATE.RUN;
-            } else {
-                landTimer--;
-                if (landTimer <= 0) { currentState = STATE.RUN; animFrame = 0; }
-            }
-            player.angle = 0;
-        } else {
-            if (player.vy < 0) { currentState = STATE.JUMP_UP; player.angle = 0.25; }
-            else { currentState = STATE.JUMP_DOWN; player.angle = -0.15; }
-        }
+        // Сброс флатов перед проверкой
+        let nextGrounded = false;
+        let nextOnSlope = false;
+        let nextSlope = 0;
 
         // Движение мира
         for (let i = 0; i < platforms.length; i++) platforms[i].x -= gameSpeed;
         if (platforms[0].x + platforms[0].width < -100) platforms.shift();
         if (platforms[platforms.length - 1].x < width + 200) spawnPlatform();
 
-        // Коллизия с учетом наклона
-        player.grounded = false;
+        // --- УЛУЧШЕННАЯ КОЛЛИЗИЯ ---
         for (let p of platforms) {
-            // Проверка по горизонтали
+            // Горизонтальная проверка
             if (player.x + player.width > p.x + 5 && player.x < p.x + p.width - 5) {
-                // Вычисляем высоту платформы в точке X игрока
-                // y = startY + slope * (x - startX)
-                // Берем центр ног игрока для точности
                 const playerCenterX = player.x + player.width / 2;
                 const platformHeightAtX = p.y + p.slope * (playerCenterX - p.x);
-
-                // Проверка вертикали (падаем ли мы на неё)
+                
                 const feetY = player.y + player.height;
-                const prevFeetY = feetY - player.vy; // Где были ноги в прошлом кадре
+                
+                // Допуск для коллизии. 
+                // Если уклон большой, допуск должен быть больше, т.к. за шаг gameSpeed мы опускаемся сильно.
+                // Формула: базовый допуск + компенсация уклона * скорость
+                const collisionThreshold = 15 + Math.abs(p.slope) * gameSpeed * 1.5;
 
-                if (feetY >= platformHeightAtX && prevFeetY <= platformHeightAtX + 10 && player.vy >= 0) {
-                    player.grounded = true;
-                    player.vy = 0;
-                    player.y = platformHeightAtX - player.height;
-                    
-                    // Запоминаем уклон для физики
-                    player.onSlope = (Math.abs(p.slope) > 0.01);
-                    player.currentSlope = p.slope;
-                    break; // Нашли платформу, выходим
+                // Проверка: ноги ниже поверхности, но не слишком глубоко (или мы уже были на земле)
+                if (feetY >= platformHeightAtX - 5 && feetY <= platformHeightAtX + collisionThreshold) {
+                    // Если мы падали сверху ИЛИ уже бежали по этой платформе
+                    if (player.vy >= 0 || player.wasGrounded) {
+                        nextGrounded = true;
+                        player.vy = 0;
+                        // Жестко ставим игрока на поверхность, чтобы не было микро-падений
+                        player.y = platformHeightAtX - player.height;
+                        
+                        if (Math.abs(p.slope) > 0.01) {
+                            nextOnSlope = true;
+                            nextSlope = p.slope;
+                        }
+                        break; // Нашли платформу
+                    }
                 }
             }
         }
 
-        // ФИЗИКА СКЛОНА: Влияние на ускорение
+        player.grounded = nextGrounded;
+        player.onSlope = nextOnSlope;
+        player.currentSlope = nextSlope;
+
+        // Логика состояний
+        if (player.grounded) {
+            // Если только что приземлились (были в воздухе)
+            if (!player.wasGrounded) {
+                currentState = STATE.LAND;
+                landTimer = 4;
+                animFrame = 0;
+            } 
+            // Если уже бежим
+            else if (currentState === STATE.LAND) {
+                landTimer--;
+                if (landTimer <= 0) { 
+                    currentState = STATE.RUN; 
+                    animFrame = 0; 
+                }
+            } else if (currentState !== STATE.LAND) {
+                currentState = STATE.RUN;
+            }
+            
+            // Наклон персонажа
+            if (player.onSlope) {
+                player.angle = player.currentSlope * 0.8;
+            } else {
+                player.angle = 0;
+            }
+        } else {
+            // В воздухе
+            if (player.vy < 0) { currentState = STATE.JUMP_UP; player.angle = 0.25; }
+            else { currentState = STATE.JUMP_DOWN; player.angle = -0.15; }
+        }
+
+        // ФИЗИКА СКЛОНА
         let currentAccel = BASE_ACCELERATION;
         if (player.onSlope) {
             if (player.currentSlope > 0) {
-                // В гору: сложнее разгоняться
-                currentAccel = BASE_ACCELERATION - 0.002; // Фактически замедление относительно базы
-                if (currentAccel < -0.0005) currentAccel = -0.0005; // Минимальное торможение, чтобы не ехал назад сам
+                currentAccel = BASE_ACCELERATION - 0.002;
+                if (currentAccel < -0.0005) currentAccel = -0.0005;
             } else if (player.currentSlope < 0) {
-                // С горы: легче разгоняться
                 currentAccel = BASE_ACCELERATION + 0.002;
             }
         }
         
         gameSpeed += currentAccel;
-        // Ограничение минимальной скорости, чтобы игра не встала совсем
         if (gameSpeed < 2) gameSpeed = 2;
 
         score += gameSpeed * 0.05;
@@ -317,22 +338,17 @@
             ctx.fillRect(sx, sy, 2, 2);
         }
 
-        // Отрисовка платформ (Полигоны)
+        // Платформы
         platforms.forEach(p => {
             ctx.fillStyle = '#576574';
             ctx.beginPath();
-            // Левый верхний угол
             ctx.moveTo(p.x, p.y);
-            // Правый верхний угол (с учетом уклона)
             ctx.lineTo(p.x + p.width, p.endY);
-            // Правый нижний угол (глубоко вниз)
             ctx.lineTo(p.x + p.width, p.endY + p.height);
-            // Левый нижний угол
             ctx.lineTo(p.x, p.y + p.height);
             ctx.closePath();
             ctx.fill();
 
-            // Верхняя грань (крыша) - чуть светлее
             ctx.strokeStyle = '#8395a7';
             ctx.lineWidth = 4;
             ctx.beginPath();
@@ -340,7 +356,6 @@
             ctx.lineTo(p.x + p.width, p.endY);
             ctx.stroke();
             
-            // Декор (труба) - рисуем только если уклон небольшой, иначе сложно
             if (Math.abs(p.slope) < 0.1) {
                 ctx.fillStyle = '#222';
                 ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
@@ -353,15 +368,7 @@
             const cx = player.x + player.width / 2;
             const cy = player.y + player.height / 2;
             ctx.translate(cx, cy);
-            
-            // Наклон персонажа в зависимости от склона
-            let tilt = player.angle;
-            if (player.onSlope) {
-                // Добавляем наклон платформы к углу персонажа
-                tilt += player.currentSlope * 0.8; 
-            }
-            
-            ctx.rotate(tilt);
+            ctx.rotate(player.angle);
             
             const FRAME_W = 16, FRAME_H = 16;
             let row = 0;
