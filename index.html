@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier v0.2.12</title>
+    <title>Roof Courier v0.2.13</title>
     <style>
         body { 
             margin: 0; 
@@ -41,12 +41,12 @@
 
     <div id="ui">
         Дистанция: <span id="score">0</span> м<br>
-        <span class="version">Версия: 0.2.12</span>
+        <span class="version">Версия: 0.2.13</span>
     </div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
         Тапни или Пробел,<br>чтобы прыгать.<br>
-        <small style="font-size:0.8em; color:#aaa">Исправлен расчет высоты после склонов</small>
+        <small style="font-size:0.8em; color:#aaa">Здания теперь всегда доходят до низа экрана</small>
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -165,10 +165,12 @@
         player.y = height - 250; player.vy = 0; player.grounded = true; player.wasGrounded = true;
         player.angle = 0; player.onSlope = false; player.currentSlope = 0;
         
-        platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0, endY: height - 150, type: 'flat' });
+        // Стартовая платформа: высота теперь динамическая (до низа экрана)
+        const startY = height - 150;
+        platforms.push({ x: 0, y: startY, width: width + 200, slope: 0, endY: startY, type: 'flat' });
         
         const msg = document.getElementById('start-msg');
-        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Исправлен расчет высоты после склонов</small>";
+        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Здания теперь всегда доходят до низа экрана</small>";
         msg.style.display = 'block';
         updateUI();
     }
@@ -184,20 +186,15 @@
         else if (rand < ROOF_CHANCES[0] + ROOF_CHANCES[1]) type = 'slope';
         else type = 'double';
 
-        // --- ИСПРАВЛЕНИЕ: Отсчет от КОНЦА предыдущей крыши (lastP.endY) ---
-        // Это гарантирует, что новая крыша будет рядом с тем местом, где игрок закончил бежать
         const prevEndY = lastP.endY; 
-        
         const targetY = height * 0.5; 
         const diff = targetY - prevEndY; 
         
         const randomShift = (Math.random() - 0.5) * 100;
         const biasShift = diff * CENTER_BIAS_STRENGTH;
         
-        // Новая startY считается от prevEndY
         let startY = prevEndY + randomShift + biasShift;
 
-        // Ограничения экрана
         if (startY < 150) startY = 150;
         if (startY > height - 100) startY = height - 100;
 
@@ -212,7 +209,6 @@
             
             endY = startY + slope * pWidth;
             
-            // Коррекция вылета за экран
             if (endY < 100) { 
                 slope = (100 - startY) / pWidth; 
                 endY = 100; 
@@ -223,11 +219,12 @@
             }
         }
 
+        // Убрали фиксированную высоту 400. Теперь она рассчитывается при отрисовке.
+        // В объекте храним только геометрию верха.
         platforms.push({ 
             x: lastP.x + lastP.width + gap, 
             y: startY, 
             width: pWidth, 
-            height: 400, 
             slope: slope,
             endY: endY,
             type: type
@@ -359,15 +356,20 @@
                 const yLeft = p.y;
                 const yRight = p.endY;
                 
+                // Находим самую нижнюю точку ската
                 const baseLine = Math.max(yLeft, yRight);
-                const buildingBaseY = baseLine + p.height;
+                
+                // ИСПРАВЛЕНИЕ: Высота здания теперь равна расстоянию от нижней точки ската до низа экрана
+                const rectHeight = height - baseLine;
                 
                 const colorRoof = '#8395a7';
                 const colorWall = '#576574';
 
+                // Рисуем основание (прямоугольник)
                 ctx.fillStyle = colorWall;
-                ctx.fillRect(xLeft, baseLine, p.width, buildingBaseY - baseLine);
+                ctx.fillRect(xLeft, baseLine, p.width, rectHeight);
                 
+                // Рисуем крышу (треугольник)
                 ctx.fillStyle = colorRoof;
                 ctx.beginPath();
                 ctx.moveTo(xLeft, yLeft);
@@ -381,8 +383,13 @@
                 ctx.fill();
 
             } else {
+                // Плоская крыша
+                // ИСПРАВЛЕНИЕ: Высота от крыши до низа экрана
+                const rectHeight = height - p.y;
+                
                 ctx.fillStyle = '#576574';
-                ctx.fillRect(p.x, p.y, p.width, p.height);
+                ctx.fillRect(p.x, p.y, p.width, rectHeight);
+                
                 ctx.strokeStyle = '#8395a7';
                 ctx.lineWidth = 4;
                 ctx.beginPath();
@@ -390,6 +397,7 @@
                 ctx.lineTo(p.x + p.width, p.y);
                 ctx.stroke();
                 
+                // Декор (труба)
                 if (Math.abs(p.slope) < 0.1) {
                     ctx.fillStyle = '#222';
                     ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
