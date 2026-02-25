@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier v0.2.11</title>
+    <title>Roof Courier v0.2.12</title>
     <style>
         body { 
             margin: 0; 
@@ -41,12 +41,12 @@
 
     <div id="ui">
         Дистанция: <span id="score">0</span> м<br>
-        <span class="version">Версия: 0.2.11</span>
+        <span class="version">Версия: 0.2.12</span>
     </div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
         Тапни или Пробел,<br>чтобы прыгать.<br>
-        <small style="font-size:0.8em; color:#aaa">Уровни плавно возвращаются к центру</small>
+        <small style="font-size:0.8em; color:#aaa">Исправлен расчет высоты после склонов</small>
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -112,10 +112,6 @@
     
     const MIN_ANGLE_DEG = 10;
     const MAX_ANGLE_DEG = 25;
-    
-    // НАСТРОЙКА "МАГНИТА" К ЦЕНТРУ
-    // 0.03 означает, что каждая новая крыша стремится сократить расстояние до центра на 3%.
-    // Это слабо заметно на коротких дистанциях, но эффективно на длинных.
     const CENTER_BIAS_STRENGTH = 0.03; 
 
     let score = 0;
@@ -172,7 +168,7 @@
         platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0, endY: height - 150, type: 'flat' });
         
         const msg = document.getElementById('start-msg');
-        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Уровни плавно возвращаются к центру</small>";
+        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Исправлен расчет высоты после склонов</small>";
         msg.style.display = 'block';
         updateUI();
     }
@@ -188,17 +184,20 @@
         else if (rand < ROOF_CHANCES[0] + ROOF_CHANCES[1]) type = 'slope';
         else type = 'double';
 
-        // --- ЛОГИКА С "МАГНИТОМ" К ЦЕНТРУ ---
-        const targetY = height * 0.5; // Цель - середина экрана
-        const diff = targetY - lastP.y; // Разница между текущей высотой и целью
+        // --- ИСПРАВЛЕНИЕ: Отсчет от КОНЦА предыдущей крыши (lastP.endY) ---
+        // Это гарантирует, что новая крыша будет рядом с тем местом, где игрок закончил бежать
+        const prevEndY = lastP.endY; 
         
-        // Случайное смещение (-50..+50) + Коррекция к центру (diff * 0.03)
+        const targetY = height * 0.5; 
+        const diff = targetY - prevEndY; 
+        
         const randomShift = (Math.random() - 0.5) * 100;
         const biasShift = diff * CENTER_BIAS_STRENGTH;
         
-        let startY = lastP.y + randomShift + biasShift;
+        // Новая startY считается от prevEndY
+        let startY = prevEndY + randomShift + biasShift;
 
-        // Жесткие границы (на случай экстремальных ситуаций)
+        // Ограничения экрана
         if (startY < 150) startY = 150;
         if (startY > height - 100) startY = height - 100;
 
@@ -213,7 +212,7 @@
             
             endY = startY + slope * pWidth;
             
-            // Коррекция только если совсем вылетает за экран
+            // Коррекция вылета за экран
             if (endY < 100) { 
                 slope = (100 - startY) / pWidth; 
                 endY = 100; 
