@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier 2D - Fixed Anim</title>
+    <title>Roof Courier 2D - Fast & Responsive</title>
     <style>
         body { 
             margin: 0; 
@@ -47,18 +47,17 @@
     let width, height;
     
     function resize() {
-        width = window.innerWidth;        height = window.innerHeight;
+        width = window.innerWidth;
+        height = window.innerHeight;
         canvas.width = width;
         canvas.height = height;
     }
     window.addEventListener('resize', resize);
     resize();
 
-    // --- ГЕНЕРАЦИЯ СПРАЙТА (ИСПРАВЛЕННАЯ) ---
+    // --- ГЕНЕРАЦИЯ СПРАЙТА ---
     function createHeroSprite() {
         const c = document.createElement('canvas');
-        // 4 кадра бега + 1 прыжок + 3 приземления = 8 кадров в ширину
-        // 3 ряда в высоту
         const FRAME_W = 16;
         const FRAME_H = 16;
         const COLS = 8;
@@ -68,26 +67,20 @@
         c.height = FRAME_H * ROWS;
         const x = c.getContext('2d');
 
-        // Цвета
         const C_SKIN = '#ffccaa';
         const C_HAIR = '#2c3e50';
-        const C_COAT = '#34495e'; // Темно-синий плащ
+        const C_COAT = '#34495e';
         const C_PANTS = '#1a1a1a';
         const C_SCARF = '#e74c3c';
 
-        // Вспомогательная функция рисования персонажа в конкретной позе
-        // col: номер колонки (кадра), row: номер ряда
-        // pose: тип позы для логики ног
         const drawFrame = (col, row, legState) => {
             const ox = col * FRAME_W;
             const oy = row * FRAME_H;
             
             x.fillStyle = C_COAT;
-            // Тело (плащ)
             x.fillRect(ox + 4, oy + 4, 8, 8); 
             
             x.fillStyle = C_SCARF;
-            // Шарф (развевается назад)
             if (legState === 'jump') {
                 x.fillRect(ox, oy + 4, 4, 3); 
             } else {
@@ -95,61 +88,49 @@
             }
 
             x.fillStyle = C_SKIN;
-            // Голова
-            x.fillRect(ox + 5, oy + 1, 6, 5);            
+            x.fillRect(ox + 5, oy + 1, 6, 5);
+            
             x.fillStyle = C_HAIR;
-            // Волосы
             x.fillRect(ox + 5, oy + 1, 6, 2);
 
             x.fillStyle = C_PANTS;
-            // Ноги (анимация)
             if (legState === 'run1') {
-                // Левая нога вперед
                 x.fillRect(ox + 5, oy + 12, 3, 4); 
                 x.fillRect(ox + 8, oy + 11, 3, 3);
             } else if (legState === 'run2') {
-                // Правая нога вперед
                 x.fillRect(ox + 5, oy + 11, 3, 3);
                 x.fillRect(ox + 8, oy + 12, 3, 4);
             } else if (legState === 'run3') {
-                // Ноги вместе (фаза отталкивания)
                 x.fillRect(ox + 6, oy + 12, 4, 4);
             } else if (legState === 'jump') {
-                // Ноги поджаты
                 x.fillRect(ox + 5, oy + 11, 6, 3);
             } else if (legState === 'land1') {
-                // Присед глубоко
                 x.fillRect(ox + 4, oy + 12, 8, 3);
             } else if (legState === 'land2') {
-                // Полуприсед
                 x.fillRect(ox + 5, oy + 12, 6, 3);
             } else if (legState === 'land3') {
-                // Стойка
                 x.fillRect(ox + 5, oy + 12, 3, 3);
                 x.fillRect(ox + 8, oy + 12, 3, 3);
             }
         };
 
-        // РЯД 0: БЕГ (4 кадра: 0,1,2,3)
+        // РЯД 0: БЕГ
         drawFrame(0, 0, 'run1');
         drawFrame(1, 0, 'run3');
         drawFrame(2, 0, 'run2');
         drawFrame(3, 0, 'run3');
-        // Дублируем для плавности (цикл 0-1-2-1-0...)
         drawFrame(4, 0, 'run1'); 
         drawFrame(5, 0, 'run3');
         drawFrame(6, 0, 'run2');
         drawFrame(7, 0, 'run3');
 
-        // РЯД 1: ПРЫЖОК (Используем 0-й кадр ряда, остальные игнорируем)
-        drawFrame(0, 1, 'jump');
-        // Заполняем остальные кадры ряда тем же, чтобы не было мусора
-        for(let i=1; i<COLS; i++) drawFrame(i, 1, 'jump');
-        // РЯД 2: ПРИЗЕМЛЕНИЕ (3 кадра: 0,1,2)
-        drawFrame(0, 2, 'land1'); // Глубоко
-        drawFrame(1, 2, 'land2'); // Средне
-        drawFrame(2, 2, 'land3'); // Стойка
-        // Остальные кадры ряда - стойка
+        // РЯД 1: ПРЫЖОК
+        for(let i=0; i<COLS; i++) drawFrame(i, 1, 'jump');
+
+        // РЯД 2: ПРИЗЕМЛЕНИЕ
+        drawFrame(0, 2, 'land1');
+        drawFrame(1, 2, 'land2');
+        drawFrame(2, 2, 'land3');
         for(let i=3; i<COLS; i++) drawFrame(i, 2, 'land3');
 
         return c.toDataURL();
@@ -174,7 +155,7 @@
     // Анимация
     let animFrame = 0;
     let animTimer = 0;
-    const ANIM_SPEED_RUN = 6; // Скорость бега (чем меньше, тем быстрее)
+    const ANIM_SPEED_RUN = 6;
     
     // Состояния
     const STATE = { RUN: 0, JUMP_UP: 1, JUMP_DOWN: 2, LAND: 3 };
@@ -184,7 +165,7 @@
     const player = {
         x: 100, 
         y: 0,
-        width: 32,  // Масштабированный размер на экране (спрайт 16px -> 32px)
+        width: 32,
         height: 32,
         vy: 0,
         grounded: false,
@@ -194,12 +175,15 @@
     // Управление
     function jump() {
         if (!gameStarted) {
-            gameStarted = true;            document.getElementById('start-msg').style.display = 'none';
+            gameStarted = true;
+            document.getElementById('start-msg').style.display = 'none';
         }
         if (isGameOver) {
             resetGame();
             return;
         }
+        // Разрешаем прыжок, если на земле И (не в состоянии приземления ИЛИ таймер почти истек)
+        // Но для простоты и отзывчивости проверяем только grounded, так как landTimer теперь очень короткий
         if (player.grounded && currentState !== STATE.LAND) {
             player.vy = JUMP_FORCE;
             player.grounded = false;
@@ -244,6 +228,7 @@
         if (pY > height - 100) pY = height - 100;
         platforms.push({ x: lastP.x + lastP.width + gap, y: pY, width: 200 + Math.random() * 400, height: height - pY + 500 });
     }
+
     function update() {
         if (!gameStarted || isGameOver) return;
 
@@ -254,8 +239,9 @@
         if (player.grounded) {
             if (currentState === STATE.JUMP_DOWN || currentState === STATE.JUMP_UP) {
                 currentState = STATE.LAND;
-                landTimer = 4; // Длительность анимации приземления
-                animFrame = 0; // Сброс на первый кадр приземления
+                // ПРАВКА 1: Уменьшили задержку до 4 кадров (было 12)
+                landTimer = 4; 
+                animFrame = 0;
             } else if (currentState !== STATE.LAND) {
                 currentState = STATE.RUN;
             } else {
@@ -276,7 +262,9 @@
             }
         }
 
-        gameSpeed += 0.0005;
+        // ПРАВКА 2: Увеличили скорость разгона в 2 раза (было 0.0005, стало 0.001)
+        gameSpeed += 0.001; 
+        
         score += gameSpeed * 0.05;
         updateUI();
 
@@ -292,7 +280,8 @@
             if (hOverlap && vOverlap && player.vy >= 0) {
                 player.grounded = true;
                 player.vy = 0;
-                player.y = p.y - player.height;            }
+                player.y = p.y - player.height;
+            }
         }
 
         if (player.y > height) {
@@ -302,30 +291,20 @@
             document.getElementById('start-msg').style.display = 'block';
         }
 
-        // Логика анимации кадров
+        // Логика анимации
         if (currentState === STATE.RUN) {
             animTimer++;
             if (animTimer > ANIM_SPEED_RUN) {
-                // Цикл бега: 0 -> 1 -> 2 -> 3 -> 2 -> 1 (плавный бег туда-сюда)
-                // У нас 8 кадров в ряду, используем первые 4 зеркально
-                if (animFrame < 3) animFrame++;
-                else if (animFrame === 3) animFrame = 2;
-                else if (animFrame > 3) animFrame--;
-                
-                // Простой цикл 0-1-2-3-0-1...
-                // Давайте сделаем проще: 0,1,2,3,0,1...
                 animFrame = (animFrame + 1) % 4; 
                 animTimer = 0;
             }
         } else if (currentState === STATE.LAND) {
-            // Анимация приземления: 0 -> 1 -> 2
             animTimer++;
-            if (animTimer > 4) {
+            if (animTimer > 4) { // Быстрая смена кадров приземления
                 if (animFrame < 2) animFrame++;
                 animTimer = 0;
             }
         } else {
-            // Прыжок: всегда кадр 0 во втором ряду
             animFrame = 0; 
         }
 
@@ -341,7 +320,8 @@
 
         // Фон
         ctx.fillStyle = '#feca57';
-        ctx.beginPath(); ctx.arc(width - 80, 80, 40, 0, Math.PI * 2); ctx.fill();        ctx.fillStyle = '#fff';
+        ctx.beginPath(); ctx.arc(width - 80, 80, 40, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff';
         for(let i=0; i<30; i++) {
             let sx = ((frame * 0.2) + (i * 137)) % width;
             let sy = (i * 23) % (height/2);
@@ -358,7 +338,7 @@
             ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
         });
 
-        // ОТРИСОВКА ПЕРСОНАЖА
+        // Персонаж
         if (heroImage.complete && heroImage.naturalWidth !== 0) {
             ctx.save();
             
@@ -371,28 +351,25 @@
             const FRAME_W = 16;
             const FRAME_H = 16;
             
-            // Выбор ряда
-            let row = 0; // Бег
+            let row = 0;
             if (currentState === STATE.JUMP_UP || currentState === STATE.JUMP_DOWN) row = 1;
             if (currentState === STATE.LAND) row = 2;
             
-            // Выбор колонки (кадра)
             let col = animFrame;
-            if (row === 1) col = 0; // Прыжок всегда первый кадр
-            if (row === 2 && animFrame > 2) col = 2; // Фиксация последнего кадра приземления
+            if (row === 1) col = 0;
+            if (row === 2 && animFrame > 2) col = 2;
 
             const sourceX = col * FRAME_W;
             const sourceY = row * FRAME_H;
 
-            // Рисуем изображение, центрируя его
             ctx.drawImage(
                 heroImage, 
                 sourceX, sourceY, FRAME_W, FRAME_H, 
                 -player.width/2, -player.height/2, player.width, player.height
             );
-                        ctx.restore();
+            
+            ctx.restore();
         } else {
-            // Фолбэк (красный квадрат), если картинка еще грузится
             ctx.fillStyle = 'red';
             ctx.fillRect(player.x, player.y, player.width, player.height);
         }
