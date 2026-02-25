@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier - Fixed Slopes</title>
+    <title>Roof Courier v0.2.9</title>
     <style>
         body { 
             margin: 0; 
@@ -16,8 +16,14 @@
         canvas { display: block; width: 100%; height: 100%; image-rendering: pixelated; }
         #ui { 
             position: absolute; top: 20px; left: 20px; color: #fff; 
-            font-size: 24px; font-weight: bold; text-shadow: 2px 2px 0 #000;
+            font-size: 20px; font-weight: bold; text-shadow: 2px 2px 0 #000;
             pointer-events: none; z-index: 10;
+            line-height: 1.4;
+        }
+        .version {
+            font-size: 14px;
+            color: #aaa;
+            font-weight: normal;
         }
         #start-msg {
             position: absolute; top: 50%; left: 50%;
@@ -33,7 +39,10 @@
 </head>
 <body>
 
-    <div id="ui">Дистанция: <span id="score">0</span> м</div>
+    <div id="ui">
+        Дистанция: <span id="score">0</span> м<br>
+        <span class="version">Версия: 0.2.9</span>
+    </div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
         Тапни или Пробел,<br>чтобы прыгать.<br>
@@ -119,7 +128,7 @@
         x: 100, y: 0, width: 32, height: 32,
         vy: 0, grounded: false, angle: 0,
         onSlope: false, currentSlope: 0,
-        wasGrounded: false // Флаг состояния в прошлом кадре
+        wasGrounded: false
     };
 
     // Управление
@@ -130,10 +139,7 @@
         }
         if (isGameOver) { resetGame(); return; }
         
-        // Разрешаем прыжок, если стоим на земле и не в анимации приземления
-        // Или если мы на склоне и просто бежим (игнорируем landTimer на склонах, если не было падения)
         if (player.grounded && (currentState !== STATE.LAND || player.onSlope)) {
-             // Дополнительная защита: если на склоне, разрешаем прыжок почти всегда, если grounded=true
              if (player.onSlope || landTimer <= 0) {
                 player.vy = JUMP_FORCE;
                 player.grounded = false;
@@ -155,7 +161,8 @@
         player.y = height - 250; player.vy = 0; player.grounded = true; player.wasGrounded = true;
         player.angle = 0; player.onSlope = false; player.currentSlope = 0;
         
-        platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0, endY: height - 150 });
+        // Стартовая плоская платформа
+        platforms.push({ x: 0, y: height - 150, width: width + 200, height: 200, slope: 0, endY: height - 150, type: 'flat' });
         
         const msg = document.getElementById('start-msg');
         msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>В гору бежать тяжелее!</small>";
@@ -182,8 +189,6 @@
         let endY = startY;
 
         if (type === 'slope') {
-            // Ограничим максимальный уклон, чтобы избежать совсем экстремальных багов
-            // Максимум около 30 градусов (tan(30) ≈ 0.58)
             slope = (Math.random() - 0.5) * 0.8; 
             endY = startY + slope * pWidth;
             
@@ -197,7 +202,8 @@
             width: pWidth, 
             height: 400, 
             slope: slope,
-            endY: endY
+            endY: endY,
+            type: type
         });
     }
 
@@ -208,44 +214,34 @@
         player.vy += GRAVITY;
         player.y += player.vy;
 
-        // Сброс флатов перед проверкой
         let nextGrounded = false;
         let nextOnSlope = false;
         let nextSlope = 0;
 
-        // Движение мира
         for (let i = 0; i < platforms.length; i++) platforms[i].x -= gameSpeed;
         if (platforms[0].x + platforms[0].width < -100) platforms.shift();
         if (platforms[platforms.length - 1].x < width + 200) spawnPlatform();
 
-        // --- УЛУЧШЕННАЯ КОЛЛИЗИЯ ---
+        // Коллизия
         for (let p of platforms) {
-            // Горизонтальная проверка
             if (player.x + player.width > p.x + 5 && player.x < p.x + p.width - 5) {
                 const playerCenterX = player.x + player.width / 2;
                 const platformHeightAtX = p.y + p.slope * (playerCenterX - p.x);
                 
                 const feetY = player.y + player.height;
-                
-                // Допуск для коллизии. 
-                // Если уклон большой, допуск должен быть больше, т.к. за шаг gameSpeed мы опускаемся сильно.
-                // Формула: базовый допуск + компенсация уклона * скорость
                 const collisionThreshold = 15 + Math.abs(p.slope) * gameSpeed * 1.5;
 
-                // Проверка: ноги ниже поверхности, но не слишком глубоко (или мы уже были на земле)
                 if (feetY >= platformHeightAtX - 5 && feetY <= platformHeightAtX + collisionThreshold) {
-                    // Если мы падали сверху ИЛИ уже бежали по этой платформе
                     if (player.vy >= 0 || player.wasGrounded) {
                         nextGrounded = true;
                         player.vy = 0;
-                        // Жестко ставим игрока на поверхность, чтобы не было микро-падений
                         player.y = platformHeightAtX - player.height;
                         
                         if (Math.abs(p.slope) > 0.01) {
                             nextOnSlope = true;
                             nextSlope = p.slope;
                         }
-                        break; // Нашли платформу
+                        break;
                     }
                 }
             }
@@ -255,38 +251,29 @@
         player.onSlope = nextOnSlope;
         player.currentSlope = nextSlope;
 
-        // Логика состояний
         if (player.grounded) {
-            // Если только что приземлились (были в воздухе)
             if (!player.wasGrounded) {
                 currentState = STATE.LAND;
                 landTimer = 4;
                 animFrame = 0;
             } 
-            // Если уже бежим
             else if (currentState === STATE.LAND) {
                 landTimer--;
-                if (landTimer <= 0) { 
-                    currentState = STATE.RUN; 
-                    animFrame = 0; 
-                }
+                if (landTimer <= 0) { currentState = STATE.RUN; animFrame = 0; }
             } else if (currentState !== STATE.LAND) {
                 currentState = STATE.RUN;
             }
             
-            // Наклон персонажа
             if (player.onSlope) {
                 player.angle = player.currentSlope * 0.8;
             } else {
                 player.angle = 0;
             }
         } else {
-            // В воздухе
             if (player.vy < 0) { currentState = STATE.JUMP_UP; player.angle = 0.25; }
             else { currentState = STATE.JUMP_DOWN; player.angle = -0.15; }
         }
 
-        // ФИЗИКА СКЛОНА
         let currentAccel = BASE_ACCELERATION;
         if (player.onSlope) {
             if (player.currentSlope > 0) {
@@ -310,7 +297,6 @@
             document.getElementById('start-msg').style.display = 'block';
         }
 
-        // Анимация
         if (currentState === STATE.RUN) {
             animTimer++;
             if (animTimer > ANIM_SPEED_RUN) { animFrame = (animFrame + 1) % 4; animTimer = 0; }
@@ -338,27 +324,170 @@
             ctx.fillRect(sx, sy, 2, 2);
         }
 
-        // Платформы
+        // Отрисовка платформ (ИСПРАВЛЕННАЯ ГЕОМЕТРИЯ)
         platforms.forEach(p => {
-            ctx.fillStyle = '#576574';
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(p.x + p.width, p.endY);
-            ctx.lineTo(p.x + p.width, p.endY + p.height);
-            ctx.lineTo(p.x, p.y + p.height);
-            ctx.closePath();
-            ctx.fill();
+            if (p.type === 'slope' && Math.abs(p.slope) > 0.01) {
+                // --- ЛОГИКА ДЛЯ ОДНОСКАТНОЙ КРЫШИ ---
+                // Определяем направления для правильного построения треугольника
+                let xLeft = p.x;
+                let xRight = p.x + p.width;
+                let yLeft = p.y;
+                let yRight = p.endY;
+                
+                let baseY, triangleTopY, rectHeight;
 
-            ctx.strokeStyle = '#8395a7';
-            ctx.lineWidth = 4;
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(p.x + p.width, p.endY);
-            ctx.stroke();
-            
-            if (Math.abs(p.slope) < 0.1) {
-                ctx.fillStyle = '#222';
-                ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
+                // Случай 1: Подъем влево-вправо (slope > 0)
+                // Левый угол ниже, правый выше.
+                // Треугольник лежит наверху справа? Нет, прямоугольный треугольник.
+                // Если slope > 0: левый нижний угол дома = (xLeft, yRight).
+                // Вершина треугольника (пик) = (xRight, yRight). Начало ската = (xLeft, yLeft).
+                // Стоп, нам нужно чтобы персонаж бежал по гипотенузе.
+                // Гипотенуза соединяет (xLeft, yLeft) и (xRight, yRight).
+                // Чтобы получить прямоугольный треугольник, нам нужен прямой угол.
+                // Вариант А: Прямой угол внизу слева. Тогда вертикальный катет слева, горизонтальный внизу.
+                //   Вершины: (xLeft, yLeft) [верх ската], (xLeft, yRight) [низ], (xRight, yRight) [конец ската].
+                //   Это работает если yLeft < yRight (спуск).
+                // Вариант Б: Прямой угол внизу справа.
+                //   Вершины: (xLeft, yLeft) [начало ската], (xRight, yLeft) [верх], (xRight, yRight) [низ].
+                //   Это работает если yLeft > yRight (подъем).
+                
+                // Упростим: просто рисуем полигон из 4 точек для всего здания, но разделим визуально.
+                // Точки здания:
+                // 1. StartTop (xLeft, yLeft)
+                // 2. EndTop (xRight, yRight)
+                // 3. EndBottom (xRight, yRight + p.height)
+                // 4. StartBottom (xLeft, yLeft + p.height) -> НЕТ, это параллелограмм.
+                
+                // Правильный подход для "дома под скатом":
+                // Здание всегда ограничено снизу уровнем max(yLeft, yRight) + p.height.
+                // Но мы хотим визуальный стиль: Треугольник сверху + Прямоугольник снизу.
+                
+                const lowestPoint = Math.max(yLeft, yRight);
+                const highestPoint = Math.min(yLeft, yRight);
+                const buildingBaseY = lowestPoint + p.height;
+
+                // Цвета
+                const colorRoof = '#8395a7'; // Светлее для крыши-треугольника
+                const colorWall = '#576574'; // Темнее для стен
+
+                // 1. Рисуем основание (Прямоугольник)
+                // Высота прямоугольника = от самой низкой точки ската до низа здания
+                ctx.fillStyle = colorWall;
+                ctx.fillRect(xLeft, lowestPoint, p.width, buildingBaseY - lowestPoint);
+
+                // 2. Рисуем крышу (Прямоугольный треугольник)
+                ctx.fillStyle = colorRoof;
+                ctx.beginPath();
+                if (p.slope > 0) {
+                    // Подъем:左低右高 (Left Low, Right High) -> НЕТ, slope > 0 значит y растет вниз? 
+                    // В Canvas Y растет вниз.
+                    // slope = (endY - startY) / width.
+                    // Если slope > 0, то endY > startY. Значит Правый конец НИЖЕ левого. Это СПУСК.
+                    // Если slope < 0, то endY < startY. Значит Правый конец ВЫШЕ левого. Это ПОДЪЕМ.
+                    
+                    // Исправление логики Canvas:
+                    // slope > 0 -> Спуск (вправо вниз).
+                    // slope < 0 -> Подъем (вправо вверх).
+                    
+                    if (p.slope > 0) { 
+                        // СПУСК: Левый верх (start), Правый низ (end).
+                        // Прямоугольный треугольник: прямой угол в Левом-Низу (под стартом).
+                        // Точки: (xLeft, yLeft) -> (xLeft, yRight) -> (xRight, yRight).
+                        ctx.moveTo(xLeft, yLeft);
+                        ctx.lineTo(xLeft, yRight); // Вертикальный катет
+                        ctx.lineTo(xRight, yRight); // Горизонтальный катет (совпадает с низом ската? Нет)
+                        // Стоп, гипотенуза должна быть поверхностью.
+                        // Если спуск: поверхность от (xLeft, yLeft) до (xRight, yRight).
+                        // Чтобы был прямоугольный треугольник ПОД ней:
+                        // Вершины: (xLeft, yLeft), (xLeft, yRight), (xRight, yRight).
+                        // Да, это прямоугольный треугольник с прямым углом в (xLeft, yRight).
+                        ctx.closePath();
+                    } else {
+                        // ПОДЪЕМ: Левый верх (start, высокий), Правый низ (end, низкий)? Нет.
+                        // slope < 0 -> endY < startY. Левый конец НИЖЕ правого? Нет, Y меньше = выше.
+                        // startY (левый) больше endY (правый)? Нет.
+                        // Пусть startY = 200, endY = 100. slope отрицательный.
+                        // Левый конец (200) ниже правого (100). Это ПОДЪЕМ.
+                        // Поверхность от (xLeft, 200) до (xRight, 100).
+                        // Прямоугольный треугольник под ней: прямой угол в Правом-Низу (под endY? нет, под самым низким).
+                        // Самый низкий уровень здесь - startY (200).
+                        // Значит прямой угол в (xLeft, startY)? Нет.
+                        // Давайте просто построим полигон крыши независимо от типа:
+                        // Точки: StartTop, EndTop, и точка прямо под одним из них на уровне другого.
+                        
+                        // Универсальный способ:
+                        // Точка A: (xLeft, yLeft)
+                        // Точка B: (xRight, yRight)
+                        // Точка C: (xRight, yLeft) -- если рисуем треугольник с прямым углом справа-вверху?
+                        // Нам нужно заполнить область ПОД линией AB до уровня min(yLeft, yRight)? Нет, до уровня max.
+                        
+                        // Просто рисуем полигон здания целиком, но красим верхнюю часть в другой цвет?
+                        // Сложно вычислить границу.
+                        
+                        // Вернемся к простому:
+                        // Рисуем весь дом как один полигон (трапецию или сложный полигон), но без дыр.
+                        ctx.moveTo(xLeft, yLeft);
+                        ctx.lineTo(xRight, yRight);
+                        ctx.lineTo(xRight, buildingBaseY);
+                        ctx.lineTo(xLeft, buildingBaseY);
+                        ctx.closePath();
+                        ctx.fill();
+                        
+                        // Теперь рисуем "крышу" (треугольник) поверх, чтобы выделить цветом
+                        ctx.fillStyle = colorRoof;
+                        ctx.beginPath();
+                        ctx.moveTo(xLeft, yLeft);
+                        ctx.lineTo(xRight, yRight);
+                        // Третья точка: проекция высшей точки ската на уровень низшей точки ската
+                        if (yLeft < yRight) { // Левый выше (Подъем)
+                             ctx.lineTo(xLeft, yRight); // Проекция левого на уровень правого
+                        } else { // Правый выше (Спуск)
+                             ctx.lineTo(xRight, yLeft); // Проекция правого на уровень левого
+                        }
+                        ctx.closePath();
+                        ctx.fill();
+                        
+                        return; // Закончили отрисовку склона
+                    }
+                }
+                
+                // Переписанная логика отрисовки для надежности (без ifs для slope знака внутри пути)
+                ctx.fillStyle = colorWall;
+                const baseLine = Math.max(yLeft, yRight);
+                ctx.fillRect(xLeft, baseLine, p.width, buildingBaseY - baseLine);
+                
+                ctx.fillStyle = colorRoof;
+                ctx.beginPath();
+                ctx.moveTo(xLeft, yLeft);
+                ctx.lineTo(xRight, yRight);
+                // Замыкаем треугольник до уровня baseLine
+                if (yLeft < yRight) { 
+                    // Левый выше. Прямой угол справа внизу относительно треугольника?
+                    // Точки: (xLeft, yLeft) -> (xRight, yRight) -> (xLeft, yRight) -> замкнуть
+                    ctx.lineTo(xLeft, yRight);
+                } else {
+                    // Правый выше.
+                    // Точки: (xLeft, yLeft) -> (xRight, yRight) -> (xRight, yLeft) -> замкнуть
+                    ctx.lineTo(xRight, yLeft);
+                }
+                ctx.closePath();
+                ctx.fill();
+
+            } else {
+                // --- ПЛОСКАЯ КРЫША (Старая логика) ---
+                ctx.fillStyle = '#576574';
+                ctx.fillRect(p.x, p.y, p.width, p.height);
+                ctx.strokeStyle = '#8395a7';
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.moveTo(p.x, p.y);
+                ctx.lineTo(p.x + p.width, p.y);
+                ctx.stroke();
+                
+                if (Math.abs(p.slope) < 0.1) {
+                    ctx.fillStyle = '#222';
+                    ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
+                }
             }
         });
 
