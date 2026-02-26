@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier v0.2.15</title>
+    <title>Roof Courier v0.2.16</title>
     <style>
         body { 
             margin: 0; 
@@ -20,14 +20,8 @@
             pointer-events: none; z-index: 10;
             line-height: 1.4;
         }
-        .version {
-            font-size: 14px;
-            color: #aaa;
-            font-weight: normal;
-        }
-        .speed-val {
-            color: #4cd137; /* Зеленый цвет для скорости */
-        }
+        .version { font-size: 14px; color: #aaa; font-weight: normal; }
+        .speed-val { color: #4cd137; }
         #start-msg {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
@@ -43,14 +37,14 @@
 <body>
 
     <div id="ui">
-        Версия: <span class="version">0.2.15</span><br>
+        Версия: <span class="version">0.2.16</span><br>
         Дистанция: <span id="score">0</span> м<br>
         Скорость: <span id="speed" class="speed-val">0.0</span> м/с
     </div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
         Тапни или Пробел,<br>чтобы прыгать.<br>
-        <small style="font-size:0.8em; color:#aaa">Следи за скоростью на склонах!</small>
+        <small style="font-size:0.8em; color:#aaa">Реалистичная физика: ~8.5 м/с</small>
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -60,6 +54,12 @@
     
     let width, height;
     
+    // --- КОНСТАНТЫ РЕАЛИЗМА ---
+    const PLAYER_HEIGHT_PX = 32; // Высота спрайта
+    const PLAYER_HEIGHT_M = 1.8; // Рост человека в метрах
+    const PIXELS_PER_METER = PLAYER_HEIGHT_PX / PLAYER_HEIGHT_M; // ~17.78 px = 1m
+    const FPS = 60;
+
     function resize() {
         width = window.innerWidth;
         height = window.innerHeight;
@@ -106,19 +106,22 @@
     const heroImage = new Image();
     heroImage.src = createHeroSprite();
 
-    // --- НАСТРОЙКИ ИГРЫ ---
-    const GRAVITY = 0.6;
-    const JUMP_FORCE = -14;
-    const BASE_SPEED = 6;
-    const BASE_ACCELERATION = 0.001;
+    // --- НАСТРОЙКИ ИГРЫ (ОТКОРРЕКТИРОВАНЫ) ---
+    // Базовая скорость: 2.5 px/frame -> ~8.4 м/с (спринт)
+    const BASE_SPEED = 2.5; 
+    // Ускорение уменьшено пропорционально
+    const BASE_ACCELERATION = 0.0005; 
     
     const ROOF_CHANCES = [70, 20, 10]; 
-    
     const MIN_ANGLE_DEG = 10;
     const MAX_ANGLE_DEG = 25;
     const CENTER_BIAS_STRENGTH = 0.03; 
 
-    let score = 0;
+    // Гравитация подобрана под новый масштаб (чтобы прыжок чувствовался весомо)
+    const GRAVITY = 0.5; 
+    const JUMP_FORCE = -11; // Чуть меньше, так как скорость ниже
+
+    let totalDistanceMeters = 0; // Реальная дистанция в метрах
     let finalScore = 0;
     let frame = 0;
     let isGameOver = false;
@@ -139,7 +142,6 @@
         wasGrounded: false
     };
 
-    // Управление
     function jump() {
         if (!gameStarted) {
             gameStarted = true;
@@ -162,7 +164,9 @@
 
     function resetGame() {
         platforms = [];
-        score = 0; finalScore = 0; frame = 0;
+        totalDistanceMeters = 0;
+        finalScore = 0;
+        frame = 0;
         gameSpeed = BASE_SPEED;
         isGameOver = false; gameStarted = false;
         currentState = STATE.RUN; animFrame = 0; landTimer = 0;
@@ -173,14 +177,15 @@
         platforms.push({ x: 0, y: startY, width: width + 200, slope: 0, endY: startY, type: 'flat' });
         
         const msg = document.getElementById('start-msg');
-        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Следи за скоростью на склонах!</small>";
+        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Реалистичная физика: ~8.5 м/с</small>";
         msg.style.display = 'block';
         updateUI();
     }
 
     function spawnPlatform() {
         const lastP = platforms[platforms.length - 1];
-        const gap = 80 + Math.random() * 140;
+        // Пропорционально увеличили разрывы, так как скорость ниже
+        const gap = 60 + Math.random() * 100; 
         const pWidth = 200 + Math.random() * 400;
         
         const rand = Math.random() * 100;
@@ -205,12 +210,10 @@
             const randomAngleDeg = MIN_ANGLE_DEG + Math.random() * (MAX_ANGLE_DEG - MIN_ANGLE_DEG);
             const rad = randomAngleDeg * (Math.PI / 180);
             const tanVal = Math.tan(rad);
-            
             const halfWidth = pWidth / 2;
             
             const slopeLeft = -tanVal;
             const endY_Left = startY + slopeLeft * halfWidth;
-            
             const slopeRight = tanVal;
             const endY_Right = endY_Left + slopeRight * halfWidth;
 
@@ -219,59 +222,28 @@
                 startY += correction;
                 if (startY < 150) type = 'flat'; 
             }
-            if (type === 'double' && endY_Right > height - 50) {
-                 type = 'flat';
-            }
+            if (type === 'double' && endY_Right > height - 50) type = 'flat';
 
             if (type === 'double') {
-                platforms.push({ 
-                    x: lastP.x + lastP.width + gap, 
-                    y: startY, 
-                    width: halfWidth, 
-                    slope: slopeLeft,
-                    endY: endY_Left,
-                    type: 'slope',
-                    isDoublePart: 'left',
-                    partnerWidth: halfWidth
-                });
-
-                platforms.push({ 
-                    x: lastP.x + lastP.width + gap + halfWidth, 
-                    y: endY_Left, 
-                    width: halfWidth, 
-                    slope: slopeRight,
-                    endY: endY_Right,
-                    type: 'slope',
-                    isDoublePart: 'right',
-                    partnerWidth: halfWidth
-                });
+                platforms.push({ x: lastP.x + lastP.width + gap, y: startY, width: halfWidth, slope: slopeLeft, endY: endY_Left, type: 'slope', isDoublePart: 'left' });
+                platforms.push({ x: lastP.x + lastP.width + gap + halfWidth, y: endY_Left, width: halfWidth, slope: slopeRight, endY: endY_Right, type: 'slope', isDoublePart: 'right' });
                 return;
             }
         }
 
         let slope = 0;
         let endY = startY;
-
         if (type === 'slope') {
             const randomAngleDeg = MIN_ANGLE_DEG + Math.random() * (MAX_ANGLE_DEG - MIN_ANGLE_DEG);
             const direction = Math.random() < 0.5 ? 1 : -1;
             const rad = randomAngleDeg * (Math.PI / 180);
             slope = direction * Math.tan(rad);
-            
             endY = startY + slope * pWidth;
-            
             if (endY < 100) { slope = (100 - startY) / pWidth; endY = 100; }
             if (endY > height - 50) { slope = (height - 50 - startY) / pWidth; endY = height - 50; }
         }
 
-        platforms.push({ 
-            x: lastP.x + lastP.width + gap, 
-            y: startY, 
-            width: pWidth, 
-            slope: slope,
-            endY: endY,
-            type: type
-        });
+        platforms.push({ x: lastP.x + lastP.width + gap, y: startY, width: pWidth, slope: slope, endY: endY, type: type });
     }
 
     function update() {
@@ -289,12 +261,10 @@
         if (platforms[0].x + platforms[0].width < -100) platforms.shift();
         if (platforms[platforms.length - 1].x < width + 200) spawnPlatform();
 
-        // Коллизия
         for (let p of platforms) {
             if (player.x + player.width > p.x + 5 && player.x < p.x + p.width - 5) {
                 const playerCenterX = player.x + player.width / 2;
                 const platformHeightAtX = p.y + p.slope * (playerCenterX - p.x);
-                
                 const feetY = player.y + player.height;
                 const collisionThreshold = 15 + Math.abs(p.slope) * gameSpeed * 1.5;
 
@@ -303,7 +273,6 @@
                         nextGrounded = true;
                         player.vy = 0;
                         player.y = platformHeightAtX - player.height;
-                        
                         if (Math.abs(p.slope) > 0.01) {
                             nextOnSlope = true;
                             nextSlope = p.slope;
@@ -319,48 +288,43 @@
         player.currentSlope = nextSlope;
 
         if (player.grounded) {
-            if (!player.wasGrounded) {
-                currentState = STATE.LAND;
-                landTimer = 4;
-                animFrame = 0;
-            } 
+            if (!player.wasGrounded) { currentState = STATE.LAND; landTimer = 4; animFrame = 0; } 
             else if (currentState === STATE.LAND) {
                 landTimer--;
                 if (landTimer <= 0) { currentState = STATE.RUN; animFrame = 0; }
-            } else if (currentState !== STATE.LAND) {
-                currentState = STATE.RUN;
-            }
+            } else if (currentState !== STATE.LAND) { currentState = STATE.RUN; }
             
-            if (player.onSlope) {
-                player.angle = player.currentSlope * 0.8;
-            } else {
-                player.angle = 0;
-            }
+            player.angle = player.onSlope ? player.currentSlope * 0.8 : 0;
         } else {
-            if (player.vy < 0) { currentState = STATE.JUMP_UP; player.angle = 0.25; }
-            else { currentState = STATE.JUMP_DOWN; player.angle = -0.15; }
+            currentState = player.vy < 0 ? STATE.JUMP_UP : STATE.JUMP_DOWN;
+            player.angle = player.vy < 0 ? 0.25 : -0.15;
         }
 
         let currentAccel = BASE_ACCELERATION;
         if (player.onSlope) {
             if (player.currentSlope > 0) {
-                currentAccel = BASE_ACCELERATION - 0.002;
+                currentAccel = BASE_ACCELERATION - 0.0008; // Чуть сильнее торможение в гору
                 if (currentAccel < -0.0005) currentAccel = -0.0005;
             } else if (player.currentSlope < 0) {
-                currentAccel = BASE_ACCELERATION + 0.002;
+                currentAccel = BASE_ACCELERATION + 0.0008; // Чуть сильнее разгон с горы
             }
         }
         
         gameSpeed += currentAccel;
-        if (gameSpeed < 2) gameSpeed = 2;
+        // Минимальная скорость теперь тоже реалистичнее (ходьба ~1.5 м/с -> ~26 px/s -> 0.43 px/frame)
+        if (gameSpeed < 0.5) gameSpeed = 0.5;
 
-        score += gameSpeed * 0.05;
+        // Расчет реальной дистанции в метрах
+        // (speed px/frame * 60 fps) / pixels_per_meter
+        const metersThisFrame = (gameSpeed * FPS) / PIXELS_PER_METER;
+        totalDistanceMeters += metersThisFrame;
+
         updateUI();
 
         if (player.y > height) {
             isGameOver = true;
-            finalScore = Math.floor(score);
-            document.getElementById('start-msg').innerHTML = `УПАЛ!<br><br>Дистанция: <b style="color:#ff9f43; font-size:1.2em">${finalScore}</b> м<br><small>Тапни для рестарта</small>`;
+            finalScore = totalDistanceMeters;
+            document.getElementById('start-msg').innerHTML = `УПАЛ!<br><br>Дистанция: <b style="color:#ff9f43; font-size:1.2em">${finalScore.toFixed(1)}</b> м<br><small>Тапни для рестарта</small>`;
             document.getElementById('start-msg').style.display = 'block';
         }
 
@@ -375,18 +339,15 @@
     }
 
     function updateUI() {
-        document.getElementById('score').innerText = isGameOver ? finalScore : Math.floor(score);
-        // Отображаем скорость с одним знаком после запятой
-        // gameSpeed - это пикселей за кадр. При 60 FPS это примерно пикселей в секунду / 60.
-        // Для наглядности просто умножим на коэффициент, чтобы цифры были красивыми (например, 5.0 - 12.0)
-        const displaySpeed = (gameSpeed * 60 / 10).toFixed(1); 
-        document.getElementById('speed').innerText = displaySpeed;
+        document.getElementById('score').innerText = isGameOver ? finalScore.toFixed(1) : totalDistanceMeters.toFixed(1);
+        
+        // Расчет скорости в м/с
+        const speedMs = (gameSpeed * FPS) / PIXELS_PER_METER;
+        document.getElementById('speed').innerText = speedMs.toFixed(1);
     }
 
     function draw() {
         ctx.clearRect(0, 0, width, height);
-
-        // Фон
         ctx.fillStyle = '#feca57';
         ctx.beginPath(); ctx.arc(width - 80, 80, 40, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = '#fff';
@@ -396,118 +357,56 @@
             ctx.fillRect(sx, sy, 2, 2);
         }
 
-        // Отрисовка платформ
         for (let i = 0; i < platforms.length; i++) {
             let p = platforms[i];
-            
             if (p.isDoublePart === 'left' && platforms[i+1] && platforms[i+1].isDoublePart === 'right') {
                 let p2 = platforms[i+1];
-                
-                const xLeft = p.x;
-                const xMid = p.x + p.width;
-                const xRight = p2.x + p2.width;
-                
-                const yLeft = p.y;
-                const yPeak = p.endY;
-                const yRight = p2.endY;
-                
+                const xLeft = p.x, xMid = p.x + p.width, xRight = p2.x + p2.width;
+                const yLeft = p.y, yPeak = p.endY, yRight = p2.endY;
                 const baseLine = Math.max(yLeft, yRight);
                 const rectHeight = height - baseLine;
                 
-                const colorRoof = '#8395a7';
-                const colorWall = '#576574';
-
-                ctx.fillStyle = colorWall;
+                ctx.fillStyle = '#576574';
                 ctx.fillRect(xLeft, baseLine, (xRight - xLeft), rectHeight);
-                
-                ctx.fillStyle = colorRoof;
-                ctx.beginPath();
-                ctx.moveTo(xLeft, yLeft);
-                ctx.lineTo(xMid, yPeak);
-                ctx.lineTo(xRight, yRight);
-                ctx.closePath();
-                ctx.fill();
-                
-                i++; 
-                continue;
+                ctx.fillStyle = '#8395a7';
+                ctx.beginPath(); ctx.moveTo(xLeft, yLeft); ctx.lineTo(xMid, yPeak); ctx.lineTo(xRight, yRight); ctx.closePath(); ctx.fill();
+                i++; continue;
             }
 
             if (p.type === 'slope' && Math.abs(p.slope) > 0.01) {
-                const xLeft = p.x;
-                const xRight = p.x + p.width;
-                const yLeft = p.y;
-                const yRight = p.endY;
-                
+                const xLeft = p.x, xRight = p.x + p.width, yLeft = p.y, yRight = p.endY;
                 const baseLine = Math.max(yLeft, yRight);
                 const rectHeight = height - baseLine;
-                
-                const colorRoof = '#8395a7';
-                const colorWall = '#576574';
-
-                ctx.fillStyle = colorWall;
-                ctx.fillRect(xLeft, baseLine, p.width, rectHeight);
-                
-                ctx.fillStyle = colorRoof;
-                ctx.beginPath();
-                ctx.moveTo(xLeft, yLeft);
-                ctx.lineTo(xRight, yRight);
-                if (yLeft < yRight) { 
-                    ctx.lineTo(xLeft, yRight);
-                } else {
-                    ctx.lineTo(xRight, yLeft);
-                }
-                ctx.closePath();
-                ctx.fill();
-
+                ctx.fillStyle = '#576574'; ctx.fillRect(xLeft, baseLine, p.width, rectHeight);
+                ctx.fillStyle = '#8395a7'; ctx.beginPath(); ctx.moveTo(xLeft, yLeft); ctx.lineTo(xRight, yRight);
+                if (yLeft < yRight) ctx.lineTo(xLeft, yRight); else ctx.lineTo(xRight, yLeft);
+                ctx.closePath(); ctx.fill();
             } else {
                 const rectHeight = height - p.y;
-                ctx.fillStyle = '#576574';
-                ctx.fillRect(p.x, p.y, p.width, rectHeight);
-                
-                ctx.strokeStyle = '#8395a7';
-                ctx.lineWidth = 4;
-                ctx.beginPath();
-                ctx.moveTo(p.x, p.y);
-                ctx.lineTo(p.x + p.width, p.y);
-                ctx.stroke();
-                
-                if (Math.abs(p.slope) < 0.1) {
-                    ctx.fillStyle = '#222';
-                    ctx.fillRect(p.x + 20, p.y - 30, 10, 30);
-                }
+                ctx.fillStyle = '#576574'; ctx.fillRect(p.x, p.y, p.width, rectHeight);
+                ctx.strokeStyle = '#8395a7'; ctx.lineWidth = 4;
+                ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + p.width, p.y); ctx.stroke();
+                if (Math.abs(p.slope) < 0.1) { ctx.fillStyle = '#222'; ctx.fillRect(p.x + 20, p.y - 30, 10, 30); }
             }
         }
 
-        // Персонаж
         if (heroImage.complete && heroImage.naturalWidth !== 0) {
             ctx.save();
-            const cx = player.x + player.width / 2;
-            const cy = player.y + player.height / 2;
-            ctx.translate(cx, cy);
-            ctx.rotate(player.angle);
-            
+            const cx = player.x + player.width / 2, cy = player.y + player.height / 2;
+            ctx.translate(cx, cy); ctx.rotate(player.angle);
             const FRAME_W = 16, FRAME_H = 16;
-            let row = 0;
-            if (currentState === STATE.JUMP_UP || currentState === STATE.JUMP_DOWN) row = 1;
-            if (currentState === STATE.LAND) row = 2;
+            let row = (currentState === STATE.JUMP_UP || currentState === STATE.JUMP_DOWN) ? 1 : (currentState === STATE.LAND ? 2 : 0);
             let col = animFrame;
             if (row === 1) col = 0;
             if (row === 2 && animFrame > 2) col = 2;
-
             ctx.drawImage(heroImage, col * FRAME_W, row * FRAME_H, FRAME_W, FRAME_H, -player.width/2, -player.height/2, player.width, player.height);
             ctx.restore();
         } else {
-            ctx.fillStyle = 'red';
-            ctx.fillRect(player.x, player.y, player.width, player.height);
+            ctx.fillStyle = 'red'; ctx.fillRect(player.x, player.y, player.width, player.height);
         }
     }
 
-    function loop() {
-        update();
-        draw();
-        requestAnimationFrame(loop);
-    }
-
+    function loop() { update(); draw(); requestAnimationFrame(loop); }
     resetGame();
     loop();
 </script>
