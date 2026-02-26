@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Roof Courier v0.2.14</title>
+    <title>Roof Courier v0.2.15</title>
     <style>
         body { 
             margin: 0; 
@@ -25,6 +25,9 @@
             color: #aaa;
             font-weight: normal;
         }
+        .speed-val {
+            color: #4cd137; /* Зеленый цвет для скорости */
+        }
         #start-msg {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
@@ -40,13 +43,14 @@
 <body>
 
     <div id="ui">
+        Версия: <span class="version">0.2.15</span><br>
         Дистанция: <span id="score">0</span> м<br>
-        <span class="version">Версия: 0.2.14</span>
+        Скорость: <span id="speed" class="speed-val">0.0</span> м/с
     </div>
     <div id="start-msg">
         КУРЬЕР НА КРЫШАХ<br><br>
         Тапни или Пробел,<br>чтобы прыгать.<br>
-        <small style="font-size:0.8em; color:#aaa">Добавлены двускатные крыши</small>
+        <small style="font-size:0.8em; color:#aaa">Следи за скоростью на склонах!</small>
     </div>
     <canvas id="gameCanvas"></canvas>
 
@@ -108,8 +112,6 @@
     const BASE_SPEED = 6;
     const BASE_ACCELERATION = 0.001;
     
-    // Шансы: [Плоские, Односкатные, Двускатные]
-    // Поставим 70% плоских, 20% односкатных, 10% двускатных
     const ROOF_CHANCES = [70, 20, 10]; 
     
     const MIN_ANGLE_DEG = 10;
@@ -171,7 +173,7 @@
         platforms.push({ x: 0, y: startY, width: width + 200, slope: 0, endY: startY, type: 'flat' });
         
         const msg = document.getElementById('start-msg');
-        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Добавлены двускатные крыши</small>";
+        msg.innerHTML = "КУРЬЕР НА КРЫШАХ<br><br>Тапни или Пробел,<br>чтобы прыгать.<br><small style='font-size:0.8em; color:#aaa'>Следи за скоростью на склонах!</small>";
         msg.style.display = 'block';
         updateUI();
     }
@@ -200,56 +202,39 @@
         if (startY > height - 100) startY = height - 100;
 
         if (type === 'double') {
-            // --- ГЕНЕРАЦИЯ ДВУСКАТНОЙ КРЫШИ (СКЛЕЙКА ДВУХ ОДНОСКАТНЫХ) ---
-            
-            // 1. Генерируем угол (одинаковый для обоих скатов)
             const randomAngleDeg = MIN_ANGLE_DEG + Math.random() * (MAX_ANGLE_DEG - MIN_ANGLE_DEG);
             const rad = randomAngleDeg * (Math.PI / 180);
             const tanVal = Math.tan(rad);
             
-            // Половина ширины для каждого ската
             const halfWidth = pWidth / 2;
             
-            // Левый скат (Подъем): уклон отрицательный
             const slopeLeft = -tanVal;
             const endY_Left = startY + slopeLeft * halfWidth;
             
-            // Правый скат (Спуск): уклон положительный, стартует где закончился левый
             const slopeRight = tanVal;
             const endY_Right = endY_Left + slopeRight * halfWidth;
 
-            // Проверка границ для пика (endY_Left) и конца (endY_Right)
-            // Если пик уходит слишком высоко, опускаем всё здание
             if (endY_Left < 100) {
                 const correction = 100 - endY_Left;
                 startY += correction;
-                // Пересчитываем точки после коррекции
-                // (упрощенно: просто сдвигаем startY, углы те же)
-                // Но лучше просто обрезать, если все еще плохо, или отменить двускатную
-                // Для простоты: если не влезает по вертикали, делаем плоской
                 if (startY < 150) type = 'flat'; 
             }
-             // Если конец уходит слишком низко
             if (type === 'double' && endY_Right > height - 50) {
-                 type = 'flat'; // Отменяем, если не влезает вниз
+                 type = 'flat';
             }
 
             if (type === 'double') {
-                // Добавляем ЛЕВЫЙ скат
                 platforms.push({ 
                     x: lastP.x + lastP.width + gap, 
                     y: startY, 
                     width: halfWidth, 
                     slope: slopeLeft,
                     endY: endY_Left,
-                    type: 'slope', // Технически это скат, но помечен как часть двойной для отрисовки? 
-                    // Лучше создать специальный тип 'double_left' или просто использовать логику отрисовки по соседству
-                    // Для простоты физики оставим type: 'slope', но добавим флаг isDoublePart
+                    type: 'slope',
                     isDoublePart: 'left',
                     partnerWidth: halfWidth
                 });
 
-                // Добавляем ПРАВЫЙ скат (сразу за левым, без разрыва!)
                 platforms.push({ 
                     x: lastP.x + lastP.width + gap + halfWidth, 
                     y: endY_Left, 
@@ -260,11 +245,10 @@
                     isDoublePart: 'right',
                     partnerWidth: halfWidth
                 });
-                return; // Выходим, так как добавили сразу два объекта
+                return;
             }
         }
 
-        // --- ОБЫЧНАЯ ОДНОСКАТНАЯ ИЛИ ПЛОСКАЯ ---
         let slope = 0;
         let endY = startY;
 
@@ -392,6 +376,11 @@
 
     function updateUI() {
         document.getElementById('score').innerText = isGameOver ? finalScore : Math.floor(score);
+        // Отображаем скорость с одним знаком после запятой
+        // gameSpeed - это пикселей за кадр. При 60 FPS это примерно пикселей в секунду / 60.
+        // Для наглядности просто умножим на коэффициент, чтобы цифры были красивыми (например, 5.0 - 12.0)
+        const displaySpeed = (gameSpeed * 60 / 10).toFixed(1); 
+        document.getElementById('speed').innerText = displaySpeed;
     }
 
     function draw() {
@@ -408,20 +397,18 @@
         }
 
         // Отрисовка платформ
-        // Группируем двускатные для красивой отрисовки крыши
         for (let i = 0; i < platforms.length; i++) {
             let p = platforms[i];
             
-            // Проверка на двускатную крышу (левая часть)
             if (p.isDoublePart === 'left' && platforms[i+1] && platforms[i+1].isDoublePart === 'right') {
                 let p2 = platforms[i+1];
                 
                 const xLeft = p.x;
-                const xMid = p.x + p.width; // Конец левого = Начало правого
+                const xMid = p.x + p.width;
                 const xRight = p2.x + p2.width;
                 
                 const yLeft = p.y;
-                const yPeak = p.endY; // Вершина
+                const yPeak = p.endY;
                 const yRight = p2.endY;
                 
                 const baseLine = Math.max(yLeft, yRight);
@@ -430,11 +417,9 @@
                 const colorRoof = '#8395a7';
                 const colorWall = '#576574';
 
-                // Основание (единый прямоугольник под обоими скатами)
                 ctx.fillStyle = colorWall;
                 ctx.fillRect(xLeft, baseLine, (xRight - xLeft), rectHeight);
                 
-                // Крыша (треугольник)
                 ctx.fillStyle = colorRoof;
                 ctx.beginPath();
                 ctx.moveTo(xLeft, yLeft);
@@ -443,12 +428,10 @@
                 ctx.closePath();
                 ctx.fill();
                 
-                // Пропускаем следующий элемент в цикле, так как мы его уже отрисовали
                 i++; 
                 continue;
             }
 
-            // Обычная отрисовка (Односкатная или Плоская)
             if (p.type === 'slope' && Math.abs(p.slope) > 0.01) {
                 const xLeft = p.x;
                 const xRight = p.x + p.width;
@@ -477,7 +460,6 @@
                 ctx.fill();
 
             } else {
-                // Плоская
                 const rectHeight = height - p.y;
                 ctx.fillStyle = '#576574';
                 ctx.fillRect(p.x, p.y, p.width, rectHeight);
